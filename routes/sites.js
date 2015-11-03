@@ -24,13 +24,17 @@ var await = require('asyncawait/await')
 
 module.exports = function (app, model, config) {
   app.get('/sites/', async(function(req, res) {
+
     var sites = await(model.Site.all())
+    sites.forEach(function(site) {
+      await(site.getAdmins())
+      site.editable = req.user.id === site.admins[0].id
+    });
 
     if (req.accepts('json', 'html') === 'json') {
       return res.json(sites)
     }
-
-    res.render('sites/index', {sites: sites, baseUrl: config.baseUrl})
+    res.render('sites/index', {sites: sites, baseUrl: config.baseUrl, user: req.user})
   }))
 
   app.post('/sites/', async(function(req, res) {
@@ -46,10 +50,50 @@ module.exports = function (app, model, config) {
     res.status(201).location(config.baseUrl + 'sites/' + site.id).send(site)
   }))
 
+  app.put('/sites/:id', async(function(req, res) {
+    if (typeof req.user === 'undefined') {return res.status(401).send('Unauthorized')}
+    if (typeof req.body.domain === 'undefined') {
+      return res.status(400).send('Bad Request: domain is required')
+    }
+    var site = await(model.Site.get(req.params.id))
+    if (!site) return res.sendStatus(404)
+
+    await(site.getAdmins())
+    if (req.user.id != site.admins[0].id) {return res.status(401).send('Unauthorized')}
+
+    var site = await(model.Site.update(site.id, {domain: req.body.domain, settings: JSON.stringify(req.body.settings)}))
+
+    res.status(201).location(config.baseUrl + 'sites/' + site.id).send(site)
+  }))
+
   app.get('/sites/:id', async(function(req, res) {
     var site = await(model.Site.get(req.params.id))
     if (!site) return res.sendStatus(404)
     site.settings = JSON.parse(site.settings)
-    res.json(site)
+
+    await(site.getAdmins())
+
+    if (req.accepts('json', 'html') === 'json') {
+      return res.json(sites)
+    }
+    if (req.user.id != site.admins[0].id) {return res.status(401).send('Unauthorized')}
+    res.render('sites/edit', {site: site, baseUrl: config.baseUrl, user: req.user})
+  }))
+
+  app.get('/sites/:id/moderate', async(function(req, res) {
+    var site = await(model.Site.get(req.params.id))
+    if (!site) return res.sendStatus(404)
+    site.settings = JSON.parse(site.settings)
+
+    await(site.getAdmins())
+    if (req.user.id != site.admins[0].id) {return res.status(401).send('Unauthorized')}
+    var pages = site.getPages()
+    pages.forEach(function(page) {
+      await(page.getComments())
+      page.commentCount = page.comments.length
+      page.comments.reverse()
+    })
+
+    res.render('sites/moderate', {site: site, pages: pages, baseUrl: config.baseUrl, user: req.user})
   }))
 }

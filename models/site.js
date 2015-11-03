@@ -48,8 +48,10 @@ module.exports = (models) => {
   }
 
   Site.create      = (data)   => Site.query().insert(data)
+  Site.update      = (id, data) => Site.query().patch(data).where({id: id})
   Site.get         = (id)     => Site.query().where({id:     id    }).first()
   Site.getByDomain = (domain) => Site.query().where({domain: domain}).first()
+
 
   /**
    * Get a Site by http origin header string.
@@ -76,6 +78,10 @@ module.exports = (models) => {
   Site.prototype.addAdmin = function(admin) {
     const adminId = admin instanceof models.User ? admin.id : admin
     return models.SiteAdmin.query().insert({siteId: this.id, userId: adminId})
+  }
+
+  Site.prototype.getPages = function() {
+    return await(models.Page.getBySite(this))
   }
 
   return Site
