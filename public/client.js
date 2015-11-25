@@ -56,6 +56,7 @@
     var req = new XMLHttpRequest()
     req.withCredentials = true
     req.open(method, url, true)
+    headers['accept'] = 'application/json'
 
     for (var header in headers) {req.setRequestHeader(header, headers[header])}
 
@@ -126,7 +127,7 @@
     var commentDiv = document.createElement('div')
     commentDiv.className = 'comment'
 
-    if (reviewGrade != null) {
+    if (user.site.getSetting('useReviews', false) && reviewGrade != null) {
 
       // Review
       var reviewGradeLabelItems = {}
@@ -234,9 +235,9 @@
       Comment.getAllByPage(site, urlStr),
       Review.getAllByPage(site, urlStr),
       User.get(sc.server, 'me'),
-      site.config()
+      site.loadSettings()
     ])
-      .spread(function(comments, reviews, user, config) {
+      .spread(function(comments, reviews, user) {
 
         var commentContainer = document.createElement('div')
         commentContainer.className = 'comments_container'
@@ -245,16 +246,19 @@
         user.site = site
         user.review = null
 
-        // Attach reviews to linked comment
-        for (var i = 0; i < comments.length; i++) {
-          comments[i].review = null
-          for (var j = 0; j < reviews.length; j++) {
-            if (reviews[j].userId == user.id) {
-              user.review = reviews[j]
-            }
-            if (reviews[j].commentId === comments[i].id) {
-              comments[i].review = reviews[j]
-              break
+        if (site.getSetting('useReviews', false)) {
+          // Attach reviews to linked comment
+
+          for (var i = 0; i < comments.length; i++) {
+            comments[i].review = null
+            for (var j = 0; j < reviews.length; j++) {
+              if (reviews[j].userId == user.id) {
+                user.review = reviews[j]
+              }
+              if (reviews[j].commentId === comments[i].id) {
+                comments[i].review = reviews[j]
+                break
+              }
             }
           }
         }
@@ -301,7 +305,7 @@
         }, function(error) {
           if (error instanceof ForbiddenError) {
             // Lets offer login and retry
-            return User.offerLogin(sc.server, null, error.call)
+            return User.offerLogin(sc.server, error.call)
               .then(function (siteJson) {
                 console.log('Added site after auth?', siteJson)
               })
@@ -342,10 +346,9 @@
   /**
    * Display a login iframe, promise to fulfil the original request.
    */
-  User.offerLogin = function(server, siteId, call) {
+  User.offerLogin = function(server, call) {
     var iframe = document.createElement('iframe')
-    if (siteId == null) iframe.src = server + 'login'
-    else iframe.src = server + 'login/site/' + siteId
+    iframe.src = server + 'login'
     iframe.className = 'login'
 
     var deferred = window.Q.defer()
@@ -381,29 +384,30 @@
   ////////
   // Site
   //
-  //var SitePrototype = {}
+  var SitePrototype = {}
+
+  SitePrototype.loadSettings = function() {
+    var site = this
+    ajax.get(
+      site.server + 'sites/' + site.id
+    ).then(function(siteJson) {
+      var siteData = JSON.parse(siteJson)
+      site.domain = siteData.domain
+      site.settings = siteData.settings
+    })
+  }
+
+  SitePrototype.getSetting = function(key, defaultValue) {
+    if (this.settings == null) return defaultValue
+    if (!this.settings.hasOwnProperty(key)) return defaultValue
+    return this.settings[key]
+  }
 
   function Site(server, siteId) {
-    var site = {}//object.create(SitePrototype)
+    var site = Object.create(SitePrototype)
 
     site.id     = siteId
     site.server = server
-
-    site.config = function() {
-      ajax.get(
-        site.server + 'sites/' + site.id
-      ).then(function(siteJson) {
-        var siteData = JSON.parse(siteJson)
-        site.domain = siteData.domain
-        site.settings = siteData.settings
-      })
-    }
-
-    site.getSetting = function(key, defaultValue) {
-      if (site.settings == null) return defaultValue
-      if (!site.settings.hasOwnProperty(key)) return defaultValue
-      return site.settings[key]
-    }
 
     return site
   }
@@ -446,7 +450,7 @@
           if (error instanceof ForbiddenError) {
 
             // Lets offer login and retry
-            return User.offerLogin(site.server, site.id, error.call)
+            return User.offerLogin(site.server, error.call)
               .then(function (commentJson) {
                 var comment = JSON.parse(commentJson)
                 return comment
@@ -477,13 +481,14 @@
 
   /**
    * @param user    object  A user object
-   * @param comment object  A user object
+   * @param comment object  A comment object
+   * @param urlStr  string  The page ID
    * @param grade   int     Review grade
    */
   Review.save = function(user, comment, urlStr, grade) {
     var base_url = user.site.server + 'sites/' + user.site.id + '/pages/' + urlStr + '/reviews/'
     if (user.review) {
-      return ajax.put(base_url + user.review.id, {grade: grade, linkTo: comment.id})
+      return ajax.put(base_url + user.review.id, {grade: parseInt(grade, 10), linkTo: comment.id})
         .then(
           function(reviewJson) {
             var review = JSON.parse(reviewJson)
@@ -502,7 +507,7 @@
         )
     }
     else {
-      return ajax.post(base_url, {grade: grade, linkTo: comment.id})
+      return ajax.post(base_url, {grade: parseInt(grade, 10), linkTo: comment.id})
         .then(
           function(reviewJson) {
             var review = JSON.parse(reviewJson)
@@ -569,7 +574,7 @@
           newComment.site = comment.site
           newComment.review = null
 
-          if (grade != null) {
+          if (user.site.getSetting('useReviews', false) && grade != null) {
             Review.save(user, newComment, comment.pageId, grade)
               .then(function(review) {
                 newComment.review = review
@@ -618,8 +623,10 @@
       commentDiv.appendChild(editOptionsDiv(comment, user))
     }
 
-    commentDiv.appendChild(Renderer.displayName(comment))
-    if (comment.review) commentDiv.appendChild(Renderer.review(comment.review))
+    commentDiv.appendChild(displayNameSpan(comment))
+    if (user.site.getSetting('useReviews', false) && comment.review) {
+      commentDiv.appendChild(reviewDiv(comment.review))
+    }
 
     var commentText = document.createElement('div')
     commentText.className = 'comment_text'
@@ -634,29 +641,23 @@
     return commentDiv
   }
 
-  ///////////
-  // Renderer
-  //
-  var Renderer = {}
-
-  Renderer.displayName = function(comment) {
+  function displayNameSpan(comment) {
     var userSpan = document.createElement('span')
     userSpan.className = 'commenter_name'
     userSpan.appendChild(document.createTextNode(comment.user.displayName || ''))
     return userSpan;
   }
 
-  Renderer.review = function(review) {
-
+  function reviewDiv(review) {
     var reviewDiv = document.createElement('div')
     reviewDiv.className = 'review'
     for (var i = 1; i <= 5; i++) {
-      reviewDiv.appendChild(Renderer.reviewGrade(review.grade >= i))
+      reviewDiv.appendChild(reviewGradeSpan(review.grade >= i))
     }
     return reviewDiv;
   }
 
-  Renderer.reviewGrade = function(active) {
+  function reviewGradeSpan(active) {
     var gradeSpan = document.createElement('span')
     gradeSpan.innerHTML = '★'
     gradeSpan.className = active ? 'active' : ''

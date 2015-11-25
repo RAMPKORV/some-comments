@@ -13,6 +13,7 @@
 <form onsubmit="return updateSite()">
   <label>Domain name only: <input id="domain" value="{{site.domain}}" /></label><br>
   <label><input type="checkbox" id="avatars" /> Use avatars</label><br>
+  <label><input type="checkbox" id="reviews" /> Use reviews</label><br>
   <label>Sort order: <select id="sort_order">
     <option id="sort_order_asc" value="asc">Latest comment last</option>
     <option id="sort_order_desc" value="desc">Latest comment first</option>
@@ -28,6 +29,7 @@
   var sc = SomeComments('{{baseUrl}}')
 
   document.getElementById('avatars').checked = {{site.settings.useAvatar}}
+  document.getElementById('reviews').checked = {{site.settings.useReviews}}
   document.getElementById('sort_order_{{site.settings.sortOrder}}').selected = true
 
   function updateSite() {
@@ -39,6 +41,7 @@
     var sort_select = document.getElementById('sort_order')
     settings.sortOrder = sort_select.options[sort_select.selectedIndex].value
     settings.useAvatar = document.getElementById('avatars').checked
+    settings.useReviews = document.getElementById('reviews').checked
 
     sc.updateSite({{site.id}}, domain, settings)
       .then(

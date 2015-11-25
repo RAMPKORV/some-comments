@@ -44,7 +44,7 @@ module.exports = function (app, model, config) {
 
     if (typeof req.user === 'undefined') {return res.status(401).send('Unauthorized')}
 
-    var site = await(model.Site.create({domain: req.body.domain, settings: JSON.stringify(req.body.settings)}))
+    var site = await(model.Site.create({domain: req.body.domain, settings: req.body.settings}))
     await(site.addAdmin(req.user))
 
     res.status(201).location(config.baseUrl + 'sites/' + site.id).send(site)
@@ -61,7 +61,7 @@ module.exports = function (app, model, config) {
     await(site.getAdmins())
     if (req.user.id != site.admins[0].id) {return res.status(401).send('Unauthorized')}
 
-    var site = await(model.Site.update(site.id, {domain: req.body.domain, settings: JSON.stringify(req.body.settings)}))
+    var site = await(model.Site.update(site.id, {domain: req.body.domain, settings: req.body.settings}))
 
     res.status(201).location(config.baseUrl + 'sites/' + site.id).send(site)
   }))
@@ -69,12 +69,11 @@ module.exports = function (app, model, config) {
   app.get('/sites/:id', async(function(req, res) {
     var site = await(model.Site.get(req.params.id))
     if (!site) return res.sendStatus(404)
-    site.settings = JSON.parse(site.settings)
 
     await(site.getAdmins())
 
     if (req.accepts('json', 'html') === 'json') {
-      return res.json(sites)
+      return res.json(site)
     }
     if (req.user.id != site.admins[0].id) {return res.status(401).send('Unauthorized')}
     res.render('sites/edit', {site: site, baseUrl: config.baseUrl, user: req.user})
@@ -83,10 +82,11 @@ module.exports = function (app, model, config) {
   app.get('/sites/:id/moderate', async(function(req, res) {
     var site = await(model.Site.get(req.params.id))
     if (!site) return res.sendStatus(404)
-    site.settings = JSON.parse(site.settings)
 
     await(site.getAdmins())
+
     if (req.user.id != site.admins[0].id) {return res.status(401).send('Unauthorized')}
+
     var pages = site.getPages()
     pages.forEach(function(page) {
       await(page.getComments())
